@@ -1,0 +1,178 @@
+# django-editable-pages
+
+Reusable Django app for admin-managed rich content pages with a public read-only API.
+
+## Features
+
+- `EditablePage` model with hierarchy, version notes, and history tracking
+- Django admin integration with TinyMCE-backed HTML fields
+- Read-only DRF endpoints for page lists, detail, legal policies, featured pages, and FAQs
+- Import/export management command for portable JSON fixtures
+- Built-in cache versioning with optional host invalidation hooks
+- Standalone configuration via Django settings, with optional resolver hooks for registry-backed setups
+
+## Installation
+
+```bash
+uv add django-editable-pages
+```
+
+Add the package and its prerequisites to `INSTALLED_APPS`:
+
+```python
+INSTALLED_APPS = [
+    # ...
+    "rest_framework",
+    "simple_history",
+    "tinymce",
+    "editable_pages",
+]
+```
+
+Run migrations:
+
+```bash
+python manage.py migrate editable_pages
+```
+
+## URL setup
+
+Mount the package wherever you want the API to live:
+
+```python
+from django.urls import include, path
+
+urlpatterns = [
+    path(
+        "api/v1/content/",
+        include(("editable_pages.urls", "editable_pages"), namespace="editable_pages"),
+    ),
+]
+```
+
+## Model usage
+
+```python
+from editable_pages.models import EditablePage
+
+EditablePage.objects.create(
+    page_type="privacy_policy",
+    title="Privacy Policy",
+    slug="privacy-policy",
+    content="<h1>Privacy Policy</h1><p>Your content here.</p>",
+)
+```
+
+## Configuration
+
+The package works in two modes:
+
+1. **Standalone** via normal Django settings
+2. **Optional registry-backed** via dotted-path resolver hooks
+
+### Settings
+
+| Setting | Purpose | Default |
+| --- | --- | --- |
+| `EDITABLE_PAGES_PAGE_TYPES` | Available `(value, label)` page types | Built-in defaults |
+| `EDITABLE_PAGES_URLS` | Static `page_type -> frontend path` mapping | Docs/help/legal defaults |
+| `EDITABLE_PAGES_DEFAULT_URL` | Fallback frontend path | `/` |
+| `EDITABLE_PAGES_URL_RESOLVER` | Callable or dotted path resolving `page -> str` | unset |
+| `EDITABLE_PAGES_LEGAL_PAGE_TYPES` | Page types returned by `legal_policies` | `("terms_of_service", "privacy_policy")` |
+| `EDITABLE_PAGES_CACHE_TIMEOUTS` | Cache TTLs for `content_pages` and `faqs` | `900`, `604800` |
+| `EDITABLE_PAGES_CACHE_TIMEOUT_RESOLVER` | Callable or dotted path resolving cache TTLs | unset |
+| `EDITABLE_PAGES_CACHE_INVALIDATOR` | Optional host invalidation hook | unset |
+| `EDITABLE_PAGES_CACHE_NAMESPACE` | Cache key namespace prefix | `editable_pages` |
+
+### Optional registry-backed integration
+
+`django-editable-pages` does **not** depend on `django-system-resgistry`, but it is designed to work with a registry package if you install one later.
+
+Example resolver:
+
+```python
+def editable_pages_cache_timeout(*, scope: str, page_type: str | None, default: int) -> int:
+    del page_type
+    from apps.core.models import SystemSetting
+
+    mapping = {
+        "content_pages": ("cache", "content_pages_timeout_seconds"),
+        "faqs": ("cache", "faq_timeout_seconds"),
+    }
+    namespace, key = mapping.get(scope, ("cache", "unused"))
+    return int(SystemSetting.get_value(namespace, key, default))
+
+
+EDITABLE_PAGES_CACHE_TIMEOUT_RESOLVER = "config.editable_pages.editable_pages_cache_timeout"
+```
+
+Example URL resolver:
+
+```python
+def editable_pages_url(page) -> str:
+    custom_urls = {
+        "documentation": "/docs",
+        "terms_of_service": "/terms-of-service",
+        "privacy_policy": "/privacy-policy",
+    }
+    return custom_urls.get(page.page_type, f"/pages/{page.slug}")
+
+
+EDITABLE_PAGES_URL_RESOLVER = "config.editable_pages.editable_pages_url"
+```
+
+## Management command
+
+Use the package command to move portable fixture data in and out of the app:
+
+```bash
+python manage.py manage_editable_pages import --source fixtures/editable_pages.json
+python manage.py manage_editable_pages export --output fixtures/editable_pages.json
+```
+
+The exported fixture uses:
+
+- the package model label (`editable_pages.editablepage`)
+- `parent_page_slug` instead of parent primary keys for portability
+- content-focused fields only, not environment-specific metadata
+
+## API endpoints
+
+Assuming you mounted the URLs under `/api/v1/content/`:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /pages/` | List active pages |
+| `GET /pages/{slug}/` | Retrieve a page by slug |
+| `GET /pages/by_type/?page_type=faq` | Filter pages by type |
+| `GET /pages/legal_policies/` | Return configured legal page types |
+| `GET /pages/featured/` | Return featured pages |
+| `GET /pages/faqs/` | Return FAQ pages |
+
+## Frontend integration example
+
+Keep framework-specific UI in the consuming app. A minimal TypeScript client is usually enough:
+
+```ts
+import axios from "axios";
+
+export async function getPageBySlug(slug: string) {
+  const response = await axios.get(`/api/v1/content/pages/${slug}/`);
+  return response.data;
+}
+```
+
+## HTML trust boundary
+
+This package stores rich HTML and is intended for **trusted operator-managed content**. If your product allows untrusted authors to edit page content, add sanitization before save and/or before rendering on the frontend.
+
+## Development
+
+```bash
+cd django-editable-pages
+uv sync --extra dev
+source .venv/bin/activate
+pytest
+ruff check editable_pages tests
+mypy editable_pages tests
+```
