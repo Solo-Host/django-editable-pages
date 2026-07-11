@@ -29,6 +29,9 @@ INSTALLED_APPS = [
 ]
 ```
 
+`editable_pages` automatically applies a richer default `TINYMCE_DEFAULT_CONFIG`
+for its `HTMLField` admin widgets when the app loads.
+
 Run migrations:
 
 ```bash
@@ -84,6 +87,33 @@ The package works in two modes:
 | `EDITABLE_PAGES_CACHE_TIMEOUT_RESOLVER` | Callable or dotted path resolving cache TTLs | unset |
 | `EDITABLE_PAGES_CACHE_INVALIDATOR` | Optional host invalidation hook | unset |
 | `EDITABLE_PAGES_CACHE_NAMESPACE` | Cache key namespace prefix | `editable_pages` |
+
+### TinyMCE defaults
+
+The package ships with a default `TINYMCE_DEFAULT_CONFIG` modeled after the
+reference project configuration and applies it automatically during app loading.
+If the consuming project defines `TINYMCE_DEFAULT_CONFIG`, those values are
+merged on top of the package defaults so you only need to override the keys you
+care about.
+
+If you want to start from the package defaults explicitly in your project
+settings, import and extend them:
+
+```python
+from editable_pages.tinymce_settings import (
+    TINYMCE_DEFAULT_CONFIG as EDITABLE_PAGES_TINYMCE_DEFAULT_CONFIG,
+)
+
+TINYMCE_DEFAULT_CONFIG = {
+    **EDITABLE_PAGES_TINYMCE_DEFAULT_CONFIG,
+    "height": 600,
+    "content_css": ["/static/css/editor.css"],
+}
+```
+
+The package does not add any `django-filebrowser` settings. If the consuming
+project installs filebrowser, `django-tinymce`'s native integration still
+applies independently.
 
 ### Optional registry-backed integration
 
