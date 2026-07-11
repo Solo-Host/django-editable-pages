@@ -4,10 +4,10 @@ Reusable Django app for admin-managed rich content pages with a public read-only
 
 ## Features
 
-- `EditablePage` model with hierarchy, version notes, and history tracking
+- `EditablePage` model with hierarchy, version notes, history tracking, and per-page visibility
 - Django admin integration with TinyMCE-backed HTML fields
 - Read-only DRF endpoints for page lists, detail, legal policies, featured pages, and FAQs
-- Import/export management command for portable JSON fixtures
+- Import/export management command for portable JSON fixtures and simpler repo-committed seed data
 - Built-in cache versioning with optional host invalidation hooks
 - Standalone configuration via Django settings, with optional resolver hooks for registry-backed setups
 
@@ -60,6 +60,7 @@ EditablePage.objects.create(
     title="Privacy Policy",
     slug="privacy-policy",
     content="<h1>Privacy Policy</h1><p>Your content here.</p>",
+    visibility="public",
 )
 ```
 
@@ -127,14 +128,21 @@ Use the package command to move portable fixture data in and out of the app:
 
 ```bash
 python manage.py manage_editable_pages import --source fixtures/editable_pages.json
+python manage.py manage_editable_pages import --source fixtures/help-pages.json --format seed --slug help
 python manage.py manage_editable_pages export --output fixtures/editable_pages.json
+python manage.py manage_editable_pages export --output fixtures/help-pages.json --format seed --page-type help_index --content-source fixture
 ```
 
-The exported fixture uses:
+The default exported fixture uses:
 
 - the package model label (`editable_pages.editablepage`)
 - `parent_page_slug` instead of parent primary keys for portability
 - content-focused fields only, not environment-specific metadata
+
+Use `--format seed` to export a simpler list of field dictionaries that is easier
+to keep in a repository-controlled seed data file. Both fixture and seed imports
+support filtering by `--slug`, `--page-type`, and `--visibility`; exports also
+support `--content-source`.
 
 ## API endpoints
 
@@ -142,12 +150,12 @@ Assuming you mounted the URLs under `/api/v1/content/`:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /pages/` | List active pages |
-| `GET /pages/{slug}/` | Retrieve a page by slug |
-| `GET /pages/by_type/?page_type=faq` | Filter pages by type |
-| `GET /pages/legal_policies/` | Return configured legal page types |
-| `GET /pages/featured/` | Return featured pages |
-| `GET /pages/faqs/` | Return FAQ pages |
+| `GET /pages/` | List active pages visible to the current caller |
+| `GET /pages/{slug}/` | Retrieve a page by slug when visible to the current caller |
+| `GET /pages/by_type/?page_type=faq` | Filter visible pages by type |
+| `GET /pages/legal_policies/` | Return configured visible legal page types |
+| `GET /pages/featured/` | Return visible featured pages |
+| `GET /pages/faqs/` | Return visible FAQ pages |
 
 ## Frontend integration example
 

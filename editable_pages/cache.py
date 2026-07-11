@@ -28,14 +28,16 @@ def bump_cache_version(scope: str) -> int:
     return next_value
 
 
-def response_cache_key(scope: str, request_path: str, *, version_scope: str) -> str:
+def response_cache_key(scope: str, request_path: str, *, version_scope: str, variant: str) -> str:
     digest = md5(request_path.encode("utf-8"), usedforsecurity=False).hexdigest()
     version = get_cache_version(version_scope)
-    return f"{get_cache_namespace()}:response:{scope}:v{version}:{digest}"
+    return f"{get_cache_namespace()}:response:{scope}:{variant}:v{version}:{digest}"
 
 
-def get_cached_payload(scope: str, request_path: str, *, version_scope: str) -> Any:
-    return cache.get(response_cache_key(scope, request_path, version_scope=version_scope))
+def get_cached_payload(scope: str, request_path: str, *, version_scope: str, variant: str) -> Any:
+    return cache.get(
+        response_cache_key(scope, request_path, version_scope=version_scope, variant=variant),
+    )
 
 
 def set_cached_payload(
@@ -45,9 +47,10 @@ def set_cached_payload(
     *,
     version_scope: str,
     timeout_scope: str,
+    variant: str,
 ) -> None:
     cache.set(
-        response_cache_key(scope, request_path, version_scope=version_scope),
+        response_cache_key(scope, request_path, version_scope=version_scope, variant=variant),
         payload,
         get_cache_timeout(timeout_scope),
     )

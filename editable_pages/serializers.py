@@ -25,6 +25,7 @@ class EditablePageSerializer(serializers.ModelSerializer):
             "content",
             "meta_description",
             "display_order",
+            "visibility",
             "is_active",
             "is_featured",
             "last_modified_by_username",
@@ -59,6 +60,7 @@ class EditablePageListSerializer(serializers.ModelSerializer):
             "slug",
             "meta_description",
             "display_order",
+            "visibility",
             "is_active",
             "is_featured",
             "updated_at",
@@ -84,6 +86,7 @@ class EditablePagePublicSerializer(serializers.ModelSerializer):
             "table_of_contents",
             "content",
             "meta_description",
+            "visibility",
             "updated_at",
             "absolute_url",
         ]

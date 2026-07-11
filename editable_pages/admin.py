@@ -12,6 +12,7 @@ class EditablePageAdmin(SimpleHistoryAdmin):
         "title",
         "page_type",
         "slug",
+        "visibility",
         "is_active",
         "is_featured",
         "display_order",
@@ -20,6 +21,7 @@ class EditablePageAdmin(SimpleHistoryAdmin):
     ]
     list_filter = [
         "page_type",
+        "visibility",
         "is_active",
         "is_featured",
         "created_at",
@@ -45,7 +47,7 @@ class EditablePageAdmin(SimpleHistoryAdmin):
         ),
         (
             "Visibility & Status",
-            {"fields": ("is_active", "is_featured")},
+            {"fields": ("visibility", "is_active", "is_featured")},
         ),
         (
             "Version Control",

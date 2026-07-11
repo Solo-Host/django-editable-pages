@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import QuerySet
 
 from editable_pages.cache import invalidate_page_caches
 from editable_pages.models import EditablePage
 
 DEFAULT_FIXTURE = "fixtures/editable_pages.json"
+DEFAULT_EXPORT_FORMAT = "fixture"
+DEFAULT_IMPORT_FORMAT = "auto"
+EXPORT_FORMATS = ("fixture", "seed")
+IMPORT_FORMATS = ("auto", *EXPORT_FORMATS)
 SYNC_FIELDS = [
     "page_type",
     "title",
@@ -19,6 +24,7 @@ SYNC_FIELDS = [
     "table_of_contents",
     "meta_description",
     "display_order",
+    "visibility",
     "is_active",
     "is_featured",
     "version_notes",
@@ -32,6 +38,7 @@ EXPORT_FIELDS = [
     "meta_description",
     "display_order",
     "parent_page_slug",
+    "visibility",
     "is_active",
     "is_featured",
     "version_notes",
@@ -51,6 +58,12 @@ class Command(BaseCommand):
             help=f"Path to the JSON fixture file (default: {DEFAULT_FIXTURE})",
         )
         import_parser.add_argument(
+            "--format",
+            choices=IMPORT_FORMATS,
+            default=DEFAULT_IMPORT_FORMAT,
+            help="Input format to read. Use 'auto' to detect fixture vs seed shapes.",
+        )
+        import_parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Preview changes without writing to the database.",
@@ -60,6 +73,7 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete all fixture-managed pages before importing.",
         )
+        self._add_selection_arguments(import_parser, allow_content_source=False)
 
         export_parser = subparsers.add_parser("export", help="Export pages to a fixture.")
         export_parser.add_argument(
@@ -68,10 +82,20 @@ class Command(BaseCommand):
             help=f"Output file path (default: {DEFAULT_FIXTURE})",
         )
         export_parser.add_argument(
+            "--format",
+            choices=EXPORT_FORMATS,
+            default=DEFAULT_EXPORT_FORMAT,
+            help=(
+                "Output format. 'fixture' preserves the package model wrapper; "
+                "'seed' writes fields only."
+            ),
+        )
+        export_parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Preview export without writing the file.",
         )
+        self._add_selection_arguments(export_parser, allow_content_source=True)
 
     def handle(self, *args: Any, **options: Any) -> None:
         action = options.get("action")
@@ -87,11 +111,13 @@ class Command(BaseCommand):
         source_path = self._resolve_path(options["source"])
         dry_run = bool(options["dry_run"])
         clear = bool(options["clear"])
+        import_format = str(options["format"])
 
         if not source_path.exists():
             raise CommandError(f"Fixture file not found: {source_path}")
 
-        entries = self._load_fixture(source_path)
+        entries = self._load_fixture(source_path, import_format=import_format)
+        entries = self._filter_entries(entries, options)
         if dry_run:
             self.stdout.write(self.style.NOTICE("=== DRY RUN — no changes will be made ==="))
 
@@ -101,7 +127,7 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             if clear:
-                stats["cleared"] = self._clear_managed_pages(dry_run)
+                stats["cleared"] = self._clear_managed_pages(dry_run, options)
 
             for entry in entries:
                 fields = self._normalize_entry(entry)
@@ -118,7 +144,7 @@ class Command(BaseCommand):
                 stats[result] += 1
 
             self._apply_parent_links(parent_links, dry_run)
-            stats["deactivated"] = self._deactivate_removed_pages(seen_slugs, dry_run)
+            stats["deactivated"] = self._deactivate_removed_pages(seen_slugs, dry_run, options)
 
             if dry_run:
                 transaction.set_rollback(True)
@@ -130,29 +156,38 @@ class Command(BaseCommand):
     def _handle_export(self, options: dict[str, Any]) -> None:
         output_path = self._resolve_path(options["output"])
         dry_run = bool(options["dry_run"])
-        pages = EditablePage.objects.all().select_related("parent_page").order_by("slug")
+        export_format = str(options["format"])
+        pages = (
+            self._filter_queryset(
+                EditablePage.objects.all().select_related("parent_page"),
+                options,
+            ).order_by("slug")
+        )
         if not pages.exists():
             self.stdout.write(self.style.WARNING("No editable pages to export."))
             return
 
-        fixture_data = [self._page_to_fixture_entry(page) for page in pages]
+        if export_format == "seed":
+            export_data = [self._page_to_seed_entry(page) for page in pages]
+        else:
+            export_data = [self._page_to_fixture_entry(page) for page in pages]
         if dry_run:
             self.stdout.write(self.style.NOTICE("=== DRY RUN — file will not be written ==="))
-            self.stdout.write(f"  Would export {len(fixture_data)} page(s) to {output_path}")
-            for entry in fixture_data:
-                fields = entry["fields"]
+            self.stdout.write(f"  Would export {len(export_data)} page(s) to {output_path}")
+            for entry in export_data:
+                fields = entry.get("fields", entry)
                 self.stdout.write(f"  - {fields['page_type']}/{fields['slug']}")
             return
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as handle:
-            json.dump(fixture_data, handle, indent=2)
+            json.dump(export_data, handle, indent=2)
 
         self.stdout.write(
-            self.style.SUCCESS(f"Exported {len(fixture_data)} page(s) to {output_path}"),
+            self.style.SUCCESS(f"Exported {len(export_data)} page(s) to {output_path}"),
         )
 
-    def _load_fixture(self, path: Path) -> list[dict[str, Any]]:
+    def _load_fixture(self, path: Path, *, import_format: str) -> list[dict[str, Any]]:
         try:
             with path.open(encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -161,7 +196,44 @@ class Command(BaseCommand):
 
         if not isinstance(data, list):
             raise CommandError("Fixture file must contain a JSON array.")
+        if import_format == "fixture" and any(
+            "fields" not in entry for entry in data if isinstance(entry, dict)
+        ):
+            raise CommandError("Fixture format requires each entry to include a 'fields' object.")
+        if import_format == "seed" and any(
+            "fields" in entry for entry in data if isinstance(entry, dict)
+        ):
+            raise CommandError("Seed format requires each entry to be a plain field mapping.")
         return data
+
+    def _add_selection_arguments(self, parser: Any, *, allow_content_source: bool) -> None:
+        parser.add_argument(
+            "--slug",
+            action="append",
+            default=[],
+            help="Limit the operation to specific slugs. Repeat for multiple pages.",
+        )
+        parser.add_argument(
+            "--page-type",
+            action="append",
+            default=[],
+            help="Limit the operation to specific page types. Repeat for multiple page types.",
+        )
+        parser.add_argument(
+            "--visibility",
+            action="append",
+            choices=[choice for choice, _label in EditablePage.VISIBILITY_CHOICES],
+            default=[],
+            help="Limit the operation to specific visibility values.",
+        )
+        if allow_content_source:
+            parser.add_argument(
+                "--content-source",
+                action="append",
+                choices=[choice for choice, _label in EditablePage.CONTENT_SOURCES if choice],
+                default=[],
+                help="Limit export to pages with specific content sources.",
+            )
 
     def _normalize_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(entry, dict):
@@ -170,6 +242,65 @@ class Command(BaseCommand):
         if not isinstance(fields, dict):
             raise CommandError("Fixture entry fields must be an object.")
         return fields
+
+    def _filter_entries(
+        self,
+        entries: list[dict[str, Any]],
+        options: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        return [entry for entry in entries if self._matches_entry_filters(entry, options)]
+
+    def _filter_queryset(
+        self,
+        queryset: QuerySet[EditablePage],
+        options: dict[str, Any],
+    ) -> QuerySet[EditablePage]:
+        slugs = [slug.strip() for slug in options.get("slug", []) if str(slug).strip()]
+        page_types = [
+            page_type.strip()
+            for page_type in options.get("page_type", [])
+            if str(page_type).strip()
+        ]
+        visibilities = [
+            visibility.strip()
+            for visibility in options.get("visibility", [])
+            if str(visibility).strip()
+        ]
+        content_sources = [
+            content_source.strip()
+            for content_source in options.get("content_source", [])
+            if str(content_source).strip()
+        ]
+        if slugs:
+            queryset = queryset.filter(slug__in=slugs)
+        if page_types:
+            queryset = queryset.filter(page_type__in=page_types)
+        if visibilities:
+            queryset = queryset.filter(visibility__in=visibilities)
+        if content_sources:
+            queryset = queryset.filter(content_source__in=content_sources)
+        return queryset
+
+    def _matches_entry_filters(self, entry: dict[str, Any], options: dict[str, Any]) -> bool:
+        fields = self._normalize_entry(entry)
+        slug = self._optional_str(fields.get("slug"))
+        page_type = self._optional_str(fields.get("page_type"))
+        visibility = self._optional_str(fields.get("visibility")) or EditablePage.VISIBILITY_PUBLIC
+
+        selected_slugs = {value.strip() for value in options.get("slug", []) if str(value).strip()}
+        if selected_slugs and slug not in selected_slugs:
+            return False
+
+        selected_page_types = {
+            value.strip() for value in options.get("page_type", []) if str(value).strip()
+        }
+        if selected_page_types and page_type not in selected_page_types:
+            return False
+
+        selected_visibilities = {
+            value.strip() for value in options.get("visibility", []) if str(value).strip()
+        }
+        return not selected_visibilities or visibility in selected_visibilities
 
     def _sync_page(self, fields: dict[str, Any], dry_run: bool) -> str:
         slug = str(fields["slug"])
@@ -237,8 +368,16 @@ class Command(BaseCommand):
             child.parent_page = parent
             child.save(update_fields={"parent_page", "updated_at"})
 
-    def _deactivate_removed_pages(self, seen_slugs: set[str], dry_run: bool) -> int:
-        managed_pages = EditablePage.objects.filter(content_source="fixture", is_active=True)
+    def _deactivate_removed_pages(
+        self,
+        seen_slugs: set[str],
+        dry_run: bool,
+        options: dict[str, Any],
+    ) -> int:
+        managed_pages = self._filter_queryset(
+            EditablePage.objects.filter(content_source="fixture", is_active=True),
+            options,
+        )
         count = 0
         for page in managed_pages:
             if page.slug in seen_slugs:
@@ -254,17 +393,20 @@ class Command(BaseCommand):
             count += 1
         return count
 
-    def _clear_managed_pages(self, dry_run: bool) -> int:
-        queryset = EditablePage.objects.filter(content_source="fixture")
+    def _clear_managed_pages(self, dry_run: bool, options: dict[str, Any]) -> int:
+        queryset = self._filter_queryset(
+            EditablePage.objects.filter(content_source="fixture"),
+            options,
+        )
         count = queryset.count()
         if count == 0:
             return 0
         if dry_run:
             self.stdout.write(f"  Would delete {count} fixture-managed page(s)")
-            return count
+            return int(count)
         queryset.delete()
         self.stdout.write(self.style.WARNING(f"  Deleted {count} fixture-managed page(s)"))
-        return count
+        return int(count)
 
     def _print_import_summary(self, stats: dict[str, int], dry_run: bool) -> None:
         prefix = "DRY RUN " if dry_run else ""
@@ -292,6 +434,7 @@ class Command(BaseCommand):
             "meta_description": page.meta_description,
             "display_order": page.display_order,
             "parent_page_slug": page.parent_page.slug if page.parent_page else None,
+            "visibility": page.visibility,
             "is_active": page.is_active,
             "is_featured": page.is_featured,
             "version_notes": page.version_notes,
@@ -300,6 +443,10 @@ class Command(BaseCommand):
             "model": page._meta.label_lower,
             "fields": {name: fields[name] for name in EXPORT_FIELDS},
         }
+
+    def _page_to_seed_entry(self, page: EditablePage) -> dict[str, Any]:
+        entry = self._page_to_fixture_entry(page)
+        return cast(dict[str, Any], entry["fields"])
 
     def _resolve_path(self, path_str: str) -> Path:
         path = Path(path_str)
