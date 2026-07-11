@@ -21,6 +21,14 @@ def _make_fixture(pages: list[dict[str, object]], path: Path | None = None) -> P
     return path
 
 
+def _make_seed(pages: list[dict[str, object]], path: Path | None = None) -> Path:
+    if path is None:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as temp:
+            path = Path(temp.name)
+    path.write_text(json.dumps(pages), encoding="utf-8")
+    return path
+
+
 def _minimal_page(**overrides: object) -> dict[str, object]:
     page = {
         "page_type": "faq",
@@ -31,6 +39,7 @@ def _minimal_page(**overrides: object) -> dict[str, object]:
         "meta_description": "",
         "display_order": 0,
         "parent_page_slug": None,
+        "visibility": EditablePage.VISIBILITY_PUBLIC,
         "is_active": True,
         "is_featured": False,
         "version_notes": "",
@@ -165,3 +174,124 @@ def test_export_dry_run_does_not_write_file() -> None:
     )
 
     assert output.exists() is False
+
+
+@pytest.mark.django_db
+def test_export_seed_format_can_filter_fixture_managed_pages() -> None:
+    EditablePage.objects.create(
+        page_type="help_index",
+        title="Help",
+        slug="help",
+        content="<p>Help</p>",
+        visibility=EditablePage.VISIBILITY_AUTHENTICATED,
+        content_source="fixture",
+    )
+    EditablePage.objects.create(
+        page_type="documentation",
+        title="Docs",
+        slug="docs",
+        content="<p>Docs</p>",
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as temp:
+        output = Path(temp.name)
+
+    call_command(
+        "manage_editable_pages",
+        "export",
+        "--output",
+        str(output),
+        "--format",
+        "seed",
+        "--page-type",
+        "help_index",
+        "--content-source",
+        "fixture",
+        stdout=StringIO(),
+    )
+
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert data == [
+        {
+            "page_type": "help_index",
+            "title": "Help",
+            "slug": "help",
+            "table_of_contents": "",
+            "content": "<p>Help</p>",
+            "meta_description": "",
+            "display_order": 0,
+            "parent_page_slug": None,
+            "visibility": EditablePage.VISIBILITY_AUTHENTICATED,
+            "is_active": True,
+            "is_featured": False,
+            "version_notes": "",
+        },
+    ]
+
+
+@pytest.mark.django_db
+def test_filtered_import_only_deactivates_matching_fixture_scope() -> None:
+    EditablePage.objects.create(
+        page_type="help_index",
+        title="Old Help",
+        slug="help",
+        content="<p>Old help</p>",
+        content_source="fixture",
+    )
+    terms = EditablePage.objects.create(
+        page_type="terms_of_service",
+        title="Terms",
+        slug="terms",
+        content="<p>Terms</p>",
+        content_source="fixture",
+    )
+    fixture = _make_fixture(
+        [_minimal_page(page_type="help_index", slug="help", content="<p>New help</p>")],
+    )
+
+    call_command(
+        "manage_editable_pages",
+        "import",
+        "--source",
+        str(fixture),
+        "--page-type",
+        "help_index",
+        stdout=StringIO(),
+    )
+
+    help_page = EditablePage.objects.get(slug="help")
+    terms.refresh_from_db()
+    assert help_page.content == "<p>New help</p>"
+    assert help_page.is_active is True
+    assert terms.is_active is True
+
+
+@pytest.mark.django_db
+def test_import_can_filter_seed_entries_by_visibility() -> None:
+    seed = _make_seed(
+        [
+            _minimal_page(slug="public-help", page_type="help_index"),
+            _minimal_page(
+                slug="private-help",
+                page_type="help_index",
+                visibility=EditablePage.VISIBILITY_AUTHENTICATED,
+            ),
+        ],
+    )
+    out = StringIO()
+
+    call_command(
+        "manage_editable_pages",
+        "import",
+        "--source",
+        str(seed),
+        "--format",
+        "seed",
+        "--visibility",
+        "authenticated",
+        stdout=out,
+    )
+
+    assert EditablePage.objects.filter(slug="private-help").exists()
+    assert not EditablePage.objects.filter(slug="public-help").exists()
+    assert "1 created" in out.getvalue()

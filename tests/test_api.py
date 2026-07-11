@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
@@ -8,6 +9,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from editable_pages.models import EditablePage
+
+User = get_user_model()
 
 
 @pytest.fixture
@@ -40,7 +43,15 @@ def pages() -> dict[str, EditablePage]:
         display_order=3,
         is_featured=True,
     )
-    return {"terms": terms, "privacy": privacy, "faq": faq}
+    help_page = EditablePage.objects.create(
+        page_type="help_index",
+        title="Help",
+        slug="help",
+        content="<p>Private help</p>",
+        display_order=4,
+        visibility=EditablePage.VISIBILITY_AUTHENTICATED,
+    )
+    return {"terms": terms, "privacy": privacy, "faq": faq, "help": help_page}
 
 
 @pytest.mark.django_db
@@ -60,6 +71,53 @@ def test_list_pages_returns_active_pages(
 
     assert response.status_code == status.HTTP_200_OK
     assert [item["slug"] for item in response.data] == ["terms", "privacy", "faq"]
+
+
+@pytest.mark.django_db
+def test_authenticated_users_can_list_and_retrieve_authenticated_pages(
+    client: APIClient,
+    pages: dict[str, EditablePage],
+) -> None:
+    user = User.objects.create_user(username="api-user", password="not-a-secret")
+    client.force_authenticate(user=user)
+
+    listing = client.get(reverse("editable_pages:pages-list"))
+    detail = client.get(reverse("editable_pages:pages-detail", kwargs={"slug": "help"}))
+
+    assert listing.status_code == status.HTTP_200_OK
+    assert [item["slug"] for item in listing.data] == ["terms", "privacy", "faq", "help"]
+    assert detail.status_code == status.HTTP_200_OK
+    assert detail.data["visibility"] == EditablePage.VISIBILITY_AUTHENTICATED
+
+
+@pytest.mark.django_db
+def test_anonymous_users_cannot_retrieve_authenticated_pages(
+    client: APIClient,
+    pages: dict[str, EditablePage],
+) -> None:
+    response = client.get(reverse("editable_pages:pages-detail", kwargs={"slug": "help"}))
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+def test_authenticated_page_cache_does_not_leak_to_anonymous_users(
+    client: APIClient,
+    pages: dict[str, EditablePage],
+) -> None:
+    user = User.objects.create_user(username="cache-user", password="not-a-secret")
+    client.force_authenticate(user=user)
+
+    authenticated_response = client.get(
+        reverse("editable_pages:pages-detail", kwargs={"slug": "help"}),
+    )
+    assert authenticated_response.status_code == status.HTTP_200_OK
+
+    client.force_authenticate(user=None)
+    anonymous_response = client.get(
+        reverse("editable_pages:pages-detail", kwargs={"slug": "help"}),
+    )
+    assert anonymous_response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db

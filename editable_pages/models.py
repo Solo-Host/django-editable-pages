@@ -18,6 +18,12 @@ class EditablePage(models.Model):
         ("", "Manual (Admin)"),
         ("fixture", "Imported from fixture"),
     ]
+    VISIBILITY_PUBLIC = "public"
+    VISIBILITY_AUTHENTICATED = "authenticated"
+    VISIBILITY_CHOICES = [
+        (VISIBILITY_PUBLIC, "Public"),
+        (VISIBILITY_AUTHENTICATED, "Authenticated users only"),
+    ]
 
     page_type = models.CharField(
         max_length=50,
@@ -47,6 +53,12 @@ class EditablePage(models.Model):
         help_text="Whether the page is publicly visible.",
     )
     is_featured = models.BooleanField(default=False, help_text="Whether to feature this page.")
+    visibility = models.CharField(
+        max_length=20,
+        choices=VISIBILITY_CHOICES,
+        default=VISIBILITY_PUBLIC,
+        help_text="Who can access this page through the read-only API.",
+    )
     content_source = models.CharField(
         max_length=20,
         choices=CONTENT_SOURCES,
@@ -81,6 +93,7 @@ class EditablePage(models.Model):
             models.Index(fields=["display_order"]),
             models.Index(fields=["parent_page"]),
             models.Index(fields=["is_featured"]),
+            models.Index(fields=["visibility"]),
         ]
 
     def __str__(self) -> str:
@@ -123,6 +136,13 @@ class EditablePage(models.Model):
             "display_order",
             "title",
         )
+
+    @classmethod
+    def visible_to(cls, *, is_authenticated: bool) -> models.QuerySet[EditablePage]:
+        queryset = cls.objects.filter(is_active=True)
+        if not is_authenticated:
+            queryset = queryset.filter(visibility=cls.VISIBILITY_PUBLIC)
+        return queryset
 
     @classmethod
     def get_top_level_pages(cls) -> models.QuerySet[EditablePage]:

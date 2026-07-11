@@ -17,7 +17,7 @@ from .serializers import EditablePageListSerializer, EditablePagePublicSerialize
 class EditablePageViewSet(viewsets.ReadOnlyModelViewSet):
     """Public read-only API for active editable pages."""
 
-    queryset = EditablePage.objects.filter(is_active=True).select_related(
+    queryset = EditablePage.objects.select_related(
         "last_modified_by",
         "parent_page",
     )
@@ -32,6 +32,18 @@ class EditablePageViewSet(viewsets.ReadOnlyModelViewSet):
             return EditablePageListSerializer
         return EditablePagePublicSerializer
 
+    def get_queryset(self):
+        user = getattr(self.request, "user", None)
+        is_authenticated = bool(user and user.is_authenticated)
+        queryset = super().get_queryset().filter(is_active=True)
+        if not is_authenticated:
+            queryset = queryset.filter(visibility=EditablePage.VISIBILITY_PUBLIC)
+        return queryset
+
+    def _cache_variant(self, request: Request) -> str:
+        user = getattr(request, "user", None)
+        return "authenticated" if bool(user and user.is_authenticated) else "public"
+
     def _payload_response(
         self,
         request: Request,
@@ -42,7 +54,13 @@ class EditablePageViewSet(viewsets.ReadOnlyModelViewSet):
         builder: Callable[[], Any],
     ) -> Response:
         request_path = request.get_full_path()
-        cached = get_cached_payload(scope, request_path, version_scope=version_scope)
+        cache_variant = self._cache_variant(request)
+        cached = get_cached_payload(
+            scope,
+            request_path,
+            version_scope=version_scope,
+            variant=cache_variant,
+        )
         if cached is not None:
             return Response(cached)
 
@@ -53,6 +71,7 @@ class EditablePageViewSet(viewsets.ReadOnlyModelViewSet):
             payload,
             version_scope=version_scope,
             timeout_scope=timeout_scope,
+            variant=cache_variant,
         )
         return Response(payload)
 
