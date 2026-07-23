@@ -209,8 +209,12 @@ This package stores rich HTML and is intended for **trusted operator-managed con
 ```bash
 cd django-editable-pages
 uv sync --extra dev
-source .venv/bin/activate
-pytest
-ruff check editable_pages tests
-mypy editable_pages tests
+uv run tox
+uv run tox -e py313 -- tests/test_models.py
+uv run tox -e lint
+uv run tox -e mypy
+uv run tox -e security
 ```
+
+`tox` is the canonical local validation entry point and mirrors the GitHub
+Actions checks.
