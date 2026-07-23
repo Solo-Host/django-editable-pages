@@ -4,4 +4,7 @@
 .tox/
 .venv/
 *.egg-info/
+!django_editable_pages.egg-info/
+django_editable_pages.egg-info/*
+!django_editable_pages.egg-info/PKG-INFO
 __pycache__/

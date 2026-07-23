@@ -54,16 +54,21 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Validate committed version metadata
+        run: python scripts/release_version.py check-sync
+
       - name: Determine version
         id: version
         run: |
           set -euo pipefail
 
-          CURRENT="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)"
-          if [ -z "${CURRENT}" ] || ! echo "${CURRENT}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Could not read a valid version from pyproject.toml (got '${CURRENT}')"
-            exit 1
-          fi
+          CURRENT="$(python scripts/release_version.py current)"
 
           git fetch --force --tags origin
           LATEST_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)"
@@ -154,8 +159,12 @@ jobs:
           set -euo pipefail
 
           git checkout -b "${BRANCH}"
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
-          git add pyproject.toml
+          python scripts/release_version.py set "${VERSION}"
+          uv lock
+          uv run --with build python -m build --sdist
+          rm -rf dist
+          python scripts/release_version.py check-sync --expected-version "${VERSION}"
+          git add pyproject.toml uv.lock django_editable_pages.egg-info/PKG-INFO
 
           if git diff --cached --quiet; then
             echo "::error::Version ${VERSION} is already present on main; refusing to create an empty release PR"
@@ -217,6 +226,11 @@ jobs:
 
             if [ "${STATUS}" -eq 0 ]; then
               echo "::notice::Enabled auto-merge for release PR #${PR_NUMBER}"
+              exit 0
+            fi
+
+            if printf '%s' "${OUTPUT}" | grep -q 'Auto merge is not allowed for this repository'; then
+              echo "::warning::Release PR #${PR_NUMBER} was created successfully, but this repository does not allow auto-merge. Leaving the PR open for a manual merge."
               exit 0
             fi
 
@@ -292,17 +306,7 @@ jobs:
           VERSION: ${{ needs.release-metadata.outputs.version }}
         run: |
           set -euo pipefail
-
-          CURRENT="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)"
-          if [ -z "${CURRENT}" ] || ! echo "${CURRENT}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Could not read a valid version from pyproject.toml (got '${CURRENT}')"
-            exit 1
-          fi
-
-          if [ "${CURRENT}" != "${VERSION}" ]; then
-            echo "::error::pyproject.toml version ${CURRENT} does not match release branch version ${VERSION}"
-            exit 1
-          fi
+          python scripts/release_version.py check-sync --expected-version "${VERSION}"
 
       - name: Install build frontend
         run: python -m pip install --upgrade pip build
