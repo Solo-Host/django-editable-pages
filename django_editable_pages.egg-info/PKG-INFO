@@ -1,3 +1,37 @@
+Metadata-Version: 2.4
+Name: django-editable-pages
+Version: 0.1.1
+Summary: Reusable Django app for admin-managed editable pages with a read-only API.
+Author: Bjorn
+License-Expression: MIT
+Classifier: Development Status :: 3 - Alpha
+Classifier: Framework :: Django
+Classifier: Framework :: Django :: 5.1
+Classifier: Framework :: Django :: 5.2
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: Django<6,>=5.1
+Requires-Dist: djangorestframework>=3.15
+Requires-Dist: django-simple-history>=3.8
+Requires-Dist: django-tinymce>=4.1
+Provides-Extra: dev
+Requires-Dist: bandit>=1.8; extra == "dev"
+Requires-Dist: build>=1.2; extra == "dev"
+Requires-Dist: django-stubs; extra == "dev"
+Requires-Dist: djangorestframework-stubs; extra == "dev"
+Requires-Dist: mypy>=1.11; extra == "dev"
+Requires-Dist: pip-audit>=2.9; extra == "dev"
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-django>=4.8; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+Requires-Dist: tox>=4.28; extra == "dev"
+Requires-Dist: tox-uv; extra == "dev"
+Dynamic: license-file
+
 # django-editable-pages
 
 Reusable Django app for admin-managed rich content pages with a public read-only API.

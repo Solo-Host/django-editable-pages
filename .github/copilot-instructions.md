@@ -105,7 +105,9 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
   this package to registry-backed configuration later
 
 ### Versioning and Release Flow
-- `pyproject.toml` is the single source of truth for the package version
+- `pyproject.toml` is the source of truth for the package version
+- `uv.lock`'s editable `django-editable-pages` entry and `django_editable_pages.egg-info/PKG-INFO` are committed mirrors that must stay aligned with `pyproject.toml`
+- Use `uv run python scripts/release_version.py check-sync` to validate committed version metadata after packaging or release-flow changes
 - Normal feature work should not bump the version manually
 - Releases go through `.github/workflows/release.yml`, which creates a release
   bump PR, then creates the tag and GitHub Release after merge
@@ -114,5 +116,5 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
 ## Important Notes
 
 - Tests use `tests.settings`
-- `uv.lock` should stay in sync with dependency metadata changes
+- `uv.lock` and `django_editable_pages.egg-info/PKG-INFO` should stay in sync with packaging metadata changes
 - Keep workflow path filters aligned with this repo's package path
