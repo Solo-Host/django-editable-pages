@@ -113,6 +113,29 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
   bump PR, then creates the tag and GitHub Release after merge
 - The release flow is GitHub-only for now; do not add PyPI publishing steps
 
+## Git Workflow
+
+### Using Worktrees
+- Create branch worktrees under the sibling `../worktrees/` directory (full path:
+  `/home/bjorn/workspace/web_projects/pkgs/worktrees/`).
+- Do not work directly on `main`; create a branch worktree first:
+  ```bash
+  git worktree add ../worktrees/django-editable-pages-my-change -b my-change main
+  cd ../worktrees/django-editable-pages-my-change
+  ```
+- Commit and push from that worktree branch as usual.
+- After the branch has been pushed and you no longer need the local checkout, or
+  after the related PR/release has been published, remove the worktree and then
+  delete the local branch:
+  ```bash
+  cd /home/bjorn/workspace/web_projects/pkgs/django-editable-pages
+  git worktree remove ../worktrees/django-editable-pages-my-change
+  git branch -d my-change
+  ```
+- If the worktree has uncommitted local-only files, clean or intentionally
+  discard them before removing the worktree. Use `git worktree remove --force`
+  only when you mean to throw that local state away.
+
 ## Important Notes
 
 - Tests use `tests.settings`
