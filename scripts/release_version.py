@@ -11,11 +11,13 @@ from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
+INIT_FILE = ROOT / "editable_pages" / "__init__.py"
 UV_LOCK = ROOT / "uv.lock"
 PKG_INFO = ROOT / "django_editable_pages.egg-info" / "PKG-INFO"
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 PYPROJECT_VERSION_RE = re.compile(r'^version = "([^"]+)"$', re.MULTILINE)
+INIT_VERSION_RE = re.compile(r'^__version__ = "([^"]+)"$', re.MULTILINE)
 PKG_INFO_VERSION_RE = re.compile(r"^Version: (.+)$", re.MULTILINE)
 UV_LOCK_VERSION_RE = re.compile(r'^version = "([^"]+)"$')
 
@@ -23,6 +25,7 @@ UV_LOCK_VERSION_RE = re.compile(r'^version = "([^"]+)"$')
 @dataclass(frozen=True)
 class VersionSources:
     pyproject: str
+    init: str
     uv_lock: str
     pkg_info: str
 
@@ -61,6 +64,32 @@ def set_pyproject_version(version: str) -> None:
     if replacements != 1:
         fail(f"Expected exactly one top-level version line in {PYPROJECT.relative_to(ROOT)}")
     PYPROJECT.write_text(updated, encoding="utf-8")
+
+
+def read_init_version() -> str:
+    if not INIT_FILE.is_file():
+        fail(f"Missing {INIT_FILE.relative_to(ROOT)}")
+
+    text = INIT_FILE.read_text(encoding="utf-8")
+    match = INIT_VERSION_RE.search(text)
+    if match is None:
+        fail(f"Could not find __version__ in {INIT_FILE.relative_to(ROOT)}")
+    return ensure_semver(INIT_FILE.relative_to(ROOT).as_posix(), match.group(1))
+
+
+def set_init_version(version: str) -> None:
+    ensure_semver("Requested version", version)
+    text = INIT_FILE.read_text(encoding="utf-8")
+    if INIT_VERSION_RE.search(text) is None:
+        stripped = text.strip()
+        updated = f'__version__ = "{version}"\n' if stripped == "" else f'__version__ = "{version}"\n\n{text}'
+        INIT_FILE.write_text(updated, encoding="utf-8")
+        return
+
+    updated, replacements = INIT_VERSION_RE.subn(f'__version__ = "{version}"', text, count=1)
+    if replacements != 1:
+        fail(f"Expected exactly one __version__ line in {INIT_FILE.relative_to(ROOT)}")
+    INIT_FILE.write_text(updated, encoding="utf-8")
 
 
 def _editable_package_version_line(lines: list[str]) -> tuple[int, str]:
@@ -125,6 +154,7 @@ def read_pkg_info_version() -> str:
 def read_versions() -> VersionSources:
     return VersionSources(
         pyproject=read_pyproject_version(),
+        init=read_init_version(),
         uv_lock=read_uv_lock_version(),
         pkg_info=read_pkg_info_version(),
     )
@@ -137,7 +167,8 @@ def command_current(_: argparse.Namespace) -> int:
 
 def command_set(args: argparse.Namespace) -> int:
     set_pyproject_version(args.version)
-    print(f"Updated pyproject.toml to {args.version}")
+    set_init_version(args.version)
+    print(f"Updated pyproject.toml and editable_pages/__init__.py to {args.version}")
     return 0
 
 
@@ -152,6 +183,13 @@ def command_check_sync(args: argparse.Namespace) -> int:
             "Version sources are out of sync: "
             f"pyproject.toml has {versions.pyproject}, "
             f"uv.lock has {versions.uv_lock}"
+        )
+
+    if versions.init != versions.pyproject:
+        fail(
+            "Version sources are out of sync: "
+            f"pyproject.toml has {versions.pyproject}, "
+            f"editable_pages/__init__.py has {versions.init}"
         )
 
     if versions.pkg_info != versions.pyproject:
@@ -185,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_sync = subparsers.add_parser(
         "check-sync",
-        help="Verify that pyproject.toml, uv.lock, and PKG-INFO all share the same version.",
+        help="Verify that pyproject.toml, editable_pages/__init__.py, uv.lock, and PKG-INFO all share the same version.",
     )
     check_sync.add_argument(
         "--expected-version",

@@ -164,7 +164,7 @@ jobs:
           uv run --with build python -m build --sdist
           rm -rf dist
           python scripts/release_version.py check-sync --expected-version "${VERSION}"
-          git add pyproject.toml uv.lock django_editable_pages.egg-info/PKG-INFO
+          git add pyproject.toml editable_pages/__init__.py uv.lock django_editable_pages.egg-info/PKG-INFO
 
           if git diff --cached --quiet; then
             echo "::error::Version ${VERSION} is already present on main; refusing to create an empty release PR"

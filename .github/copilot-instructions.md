@@ -106,7 +106,9 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
 
 ### Versioning and Release Flow
 - `pyproject.toml` is the source of truth for the package version
-- `uv.lock`'s editable `django-editable-pages` entry and `django_editable_pages.egg-info/PKG-INFO` are committed mirrors that must stay aligned with `pyproject.toml`
+- `editable_pages/__init__.py`, `uv.lock`'s editable `django-editable-pages`
+  entry, and `django_editable_pages.egg-info/PKG-INFO` are committed mirrors
+  that must stay aligned with `pyproject.toml`
 - Use `uv run python scripts/release_version.py check-sync` to validate committed version metadata after packaging or release-flow changes
 - Normal feature work should not bump the version manually
 - Releases go through `.github/workflows/release.yml`, which creates a release
@@ -139,5 +141,7 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
 ## Important Notes
 
 - Tests use `tests.settings`
-- `uv.lock` and `django_editable_pages.egg-info/PKG-INFO` should stay in sync with packaging metadata changes
+- `editable_pages/__init__.py`, `uv.lock`, and
+  `django_editable_pages.egg-info/PKG-INFO` should stay in sync with packaging
+  metadata changes
 - Keep workflow path filters aligned with this repo's package path
