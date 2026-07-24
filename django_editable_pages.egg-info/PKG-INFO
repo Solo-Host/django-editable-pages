@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: django-editable-pages
-Version: 0.1.1
+Version: 0.1.2
 Summary: Reusable Django app for admin-managed editable pages with a read-only API.
 Author: Bjorn
 License-Expression: MIT
