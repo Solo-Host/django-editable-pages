@@ -116,12 +116,12 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
 ## Git Workflow
 
 ### Using Worktrees
-- Create branch worktrees under the sibling `../worktrees/` directory (full path:
-  `/home/bjorn/workspace/web_projects/pkgs/worktrees/`).
+- Create branch worktrees under the shared `../../worktrees/` directory (full
+  path: `/home/bjorn/workspace/web_projects/worktrees/`).
 - Do not work directly on `main`; create a branch worktree first:
   ```bash
-  git worktree add ../worktrees/django-editable-pages-my-change -b my-change main
-  cd ../worktrees/django-editable-pages-my-change
+  git worktree add ../../worktrees/django-editable-pages-my-change -b my-change main
+  cd ../../worktrees/django-editable-pages-my-change
   ```
 - Commit and push from that worktree branch as usual.
 - After the branch has been pushed and you no longer need the local checkout, or
@@ -129,7 +129,7 @@ environments are `py313`, `lint`, `mypy`, and `security`, with optional `ruff`,
   delete the local branch:
   ```bash
   cd /home/bjorn/workspace/web_projects/pkgs/django-editable-pages
-  git worktree remove ../worktrees/django-editable-pages-my-change
+  git worktree remove ../../worktrees/django-editable-pages-my-change
   git branch -d my-change
   ```
 - If the worktree has uncommitted local-only files, clean or intentionally
